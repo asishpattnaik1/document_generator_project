@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .core import generate_docs
 from .models import DocumentationType
+from .llm_client import LLMProvider
 
 console = Console()
 
@@ -27,8 +28,8 @@ def cli():
 @click.option(
     "--output",
     "-o",
-    default="ARCHITECTURE_DOC.md",
-    help="Output file path for generated documentation"
+    default=None,
+    help="Output file path (defaults to projectname_doctype.md in the analyzed repository)"
 )
 @click.option(
     "--type",
@@ -52,14 +53,21 @@ def cli():
     "--model",
     "-m",
     default="gpt-5-nano",
-    help="OpenAI model to use (e.g., gpt-5-nano, gpt-4-turbo-preview, gpt-3.5-turbo, o1-mini)"
+    help="Model to use (e.g., gpt-5-nano, gpt-4-turbo-preview, gpt-3.5-turbo, o1-mini)"
+)
+@click.option(
+    "--provider",
+    "-p",
+    type=click.Choice(["openai", "azure"], case_sensitive=False),
+    default="openai",
+    help="LLM provider to use (openai or azure)"
 )
 @click.option(
     "--show-content",
     is_flag=True,
     help="Display the generated documentation content in terminal"
 )
-def generate(path, output, doc_type, no_diagrams, no_reflection, model, show_content):
+def generate(path, output, doc_type, no_diagrams, no_reflection, model, provider, show_content):
     """Generate documentation for a repository.
     
     Examples:
@@ -70,6 +78,8 @@ def generate(path, output, doc_type, no_diagrams, no_reflection, model, show_con
         
         reflectdoc generate . --no-reflection --model gpt-5-nano
         
+        reflectdoc generate . --provider azure --model gpt-4
+        
         reflectdoc generate . --show-content  # Display content in terminal
     """
     console.print(f"\n[bold blue]🚀 ReflectDoc Documentation Generator[/bold blue]\n")
@@ -77,7 +87,13 @@ def generate(path, output, doc_type, no_diagrams, no_reflection, model, show_con
     console.print(f"📄 Output: [cyan]{output}[/cyan]")
     console.print(f"📝 Type: [cyan]{doc_type}[/cyan]")
     console.print(f"🔄 Reflection: [cyan]{'disabled' if no_reflection else 'enabled'}[/cyan]")
-    console.print(f"🤖 Model: [cyan]{model}[/cyan]\n")
+    console.print(f"🤖 Model: [cyan]{model}[/cyan]")
+    console.print(f"🌐 Provider: [cyan]{provider.upper()}[/cyan]\n")
+    
+    if output is None:
+        project_name = Path(path).resolve().name
+        output = f"{project_name}_{doc_type}.md"
+        console.print(f"📄 Auto-generated Output Path: [cyan]{output}[/cyan]\n")
     
     with Progress(
         SpinnerColumn(),
@@ -94,7 +110,8 @@ def generate(path, output, doc_type, no_diagrams, no_reflection, model, show_con
                 output_file=output,
                 include_diagrams=not no_diagrams,
                 use_reflection=not no_reflection,
-                model=model
+                model=model,
+                provider=provider
             )
             
             progress.update(task1, completed=True)

@@ -1,10 +1,11 @@
 """Reflection Agent - Reviews and improves documentation quality."""
 
-from typing import Dict, Any, Tuple
-from openai import OpenAI
+from typing import Dict, Any, Tuple, Union
+from openai import OpenAI, AzureOpenAI
 import os
 from dotenv import load_dotenv
 from rich.console import Console
+from ..llm_client import LLMClientFactory, LLMProvider
 
 load_dotenv()
 
@@ -14,22 +15,32 @@ console = Console()
 class ReflectionAgent:
     """Agent responsible for reviewing and improving documentation."""
     
-    def __init__(self, model: str = "gpt-5-nano"):
+    def __init__(
+        self, 
+        model: str = "gpt-5-nano",
+        provider: LLMProvider = "openai"
+    ):
         """Initialize the reflection agent.
         
         Args:
-            model: OpenAI model to use for reflection
+            model: Model to use for reflection
+            provider: LLM provider ("openai" or "azure")
         """
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY not found in environment variables")
-        
-        self.client = OpenAI(api_key=api_key)
         self.model = model
-        # Determine if this is a newer model that uses max_completion_tokens
-        self.use_completion_tokens = "gpt-5" in model or "o1" in model
+        self.provider = provider
         
-        console.print(f"[bold red]✓ Reflection Agent[/bold red] initialized with model: [cyan]{model}[/cyan]")
+        # Create appropriate client using factory
+        self.client = LLMClientFactory.create_client(provider=provider, model=model)
+        
+        # Get model configuration
+        self.model_config = LLMClientFactory.get_model_config(model, provider)
+        self.use_completion_tokens = self.model_config["use_completion_tokens"]
+        
+        # Use deployment name for Azure, original model name for OpenAI
+        self.model = self.model_config["model"]
+        
+        provider_name = "Azure OpenAI" if provider == "azure" else "OpenAI"
+        console.print(f"[bold red]✓ Reflection Agent[/bold red] initialized with {provider_name}, model: [cyan]{self.model}[/cyan]")
     
     def reflect_on_documentation(
         self, 
@@ -55,6 +66,7 @@ class ReflectionAgent:
 3. Ensure class attributes mentioned actually exist in the code
 4. Flag any "generic" descriptions that should use actual names from the code
 5. Check if important methods or classes from the code are missing from docs
+6. VALIDATE MERMAID DIAGRAMS: Ensure node labels are SHORT (max 20 chars) to avoid parsing errors
 
 # Documentation to Review:
 {documentation}
@@ -68,6 +80,11 @@ Provide your critique in the following format:
 - List any APIs, methods, or attributes mentioned in docs but NOT in the code structure
 - List any incorrect method signatures (wrong arguments, wrong return types)
 - List any invented features or capabilities
+
+## Mermaid Diagram Issues
+- Check if node labels are too long (over 20 characters)
+- Flag any diagrams with complex function signatures in node labels
+- Suggest simpler alternatives (e.g., "User Input" instead of "get_user_input() -> User")
 
 ## Missing Coverage
 - Important classes, methods, or attributes from code NOT documented
@@ -83,6 +100,7 @@ Provide your critique in the following format:
 ## Improvement Suggestions
 - Specific recommendations using actual code elements
 - Better examples or diagrams using real method names
+- Simplified Mermaid diagrams with short, clear labels
 
 **Be thorough in catching hallucinations and inaccuracies!**
 """
