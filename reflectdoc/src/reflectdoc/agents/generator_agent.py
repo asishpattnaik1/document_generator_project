@@ -1,10 +1,11 @@
 """Generator Agent - Creates initial documentation drafts."""
 
-from typing import Dict, Any, Optional
-from openai import OpenAI
+from typing import Dict, Any, Optional, Union
+from openai import OpenAI, AzureOpenAI
 import os
 from dotenv import load_dotenv
 from rich.console import Console
+from ..llm_client import LLMClientFactory, LLMProvider
 
 load_dotenv()
 
@@ -14,22 +15,32 @@ console = Console()
 class GeneratorAgent:
     """Agent responsible for generating initial documentation."""
     
-    def __init__(self, model: str = "gpt-5-nano"):
+    def __init__(
+        self, 
+        model: str = "gpt-5-nano",
+        provider: LLMProvider = "openai"
+    ):
         """Initialize the generator agent.
         
         Args:
-            model: OpenAI model to use for generation
+            model: Model to use for generation
+            provider: LLM provider ("openai" or "azure")
         """
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY not found in environment variables")
-        
-        self.client = OpenAI(api_key=api_key)
         self.model = model
-        # Determine if this is a newer model that uses max_completion_tokens
-        self.use_completion_tokens = "gpt-5" in model or "o1" in model
+        self.provider = provider
         
-        console.print(f"[bold green]✓ Generator Agent[/bold green] initialized with model: [cyan]{model}[/cyan]")
+        # Create appropriate client using factory
+        self.client = LLMClientFactory.create_client(provider=provider, model=model)
+        
+        # Get model configuration
+        self.model_config = LLMClientFactory.get_model_config(model, provider)
+        self.use_completion_tokens = self.model_config["use_completion_tokens"]
+        
+        # Use deployment name for Azure, original model name for OpenAI
+        self.model = self.model_config["model"]
+        
+        provider_name = "Azure OpenAI" if provider == "azure" else "OpenAI"
+        console.print(f"[bold green]✓ Generator Agent[/bold green] initialized with {provider_name}, model: [cyan]{self.model}[/cyan]")
     
     def generate_architecture_doc(
         self, 
@@ -51,9 +62,28 @@ class GeneratorAgent:
         if include_diagrams:
             diagram_instruction = """
 Include Mermaid diagrams where appropriate:
-- System architecture diagram
+- System architecture diagram (use simple node labels)
 - Component relationships
 - Data flow diagrams
+
+**MERMAID DIAGRAM RULES:**
+1. Keep node labels SHORT (max 20 characters)
+2. Use simple identifiers like "User Input", "Email Service", "Config"
+3. Put detailed information in text OUTSIDE the diagram
+4. Example of GOOD diagram:
+   ```mermaid
+   graph TD
+       A[User Input] --> B[Validation]
+       B --> C[Email Service]
+       C --> D[Send Email]
+   ```
+5. Example of BAD diagram (TOO LONG):
+   ```mermaid
+   graph TD
+       A[get_user_input() -> User] --> B[display_user_info(user) -> None]
+   ```
+6. Use flowchart or graph TD/LR syntax
+7. Test that each line is valid Mermaid syntax with no line breaks in node definitions
 """
         
         prompt = f"""You are a technical documentation expert. Generate comprehensive architecture documentation for the following codebase.

@@ -7,6 +7,7 @@ from rich.console import Console
 from .agents import GeneratorAgent, ReflectionAgent
 from .models import RepoAnalysis, GenerationResponse, DocumentationType
 from .utils import scan_repository, format_structure_for_llm, extract_detailed_structure, format_detailed_structure_for_llm
+from .llm_client import LLMProvider
 
 console = Console()
 
@@ -17,18 +18,21 @@ class ReflectDoc:
         self, 
         use_reflection: bool = True,
         model: str = "gpt-5-nano",
-        max_iterations: int = 2
+        max_iterations: int = 2,
+        provider: LLMProvider = "openai"
     ):
         """Initialize ReflectDoc.
         
         Args:
             use_reflection: Whether to use reflection agent for quality improvement
-            model: OpenAI model to use
+            model: Model to use
             max_iterations: Maximum reflection iterations
+            provider: LLM provider ("openai" or "azure")
         """
         self.use_reflection = use_reflection
         self.model = model
         self.max_iterations = max_iterations
+        self.provider: LLMProvider = provider
         
         # Initialize agents (only if we need them)
         self.generator: Optional[GeneratorAgent] = None
@@ -37,9 +41,9 @@ class ReflectDoc:
     def _ensure_agents(self):
         """Lazy initialization of agents."""
         if self.generator is None:
-            self.generator = GeneratorAgent(model=self.model)
+            self.generator = GeneratorAgent(model=self.model, provider=self.provider)
         if self.use_reflection and self.reflector is None:
-            self.reflector = ReflectionAgent(model=self.model)
+            self.reflector = ReflectionAgent(model=self.model, provider=self.provider)
     
     def analyze_repository(self, repo_path: str) -> RepoAnalysis:
         """Analyze repository structure.
@@ -142,7 +146,8 @@ def generate_docs(
     include_diagrams: bool = True,
     use_reflection: bool = True,
     model: str = "gpt-5-nano",
-    max_iterations: int = 2
+    max_iterations: int = 2,
+    provider: LLMProvider = "openai"
 ) -> GenerationResponse:
     """Convenience function to generate documentation.
     
@@ -152,8 +157,9 @@ def generate_docs(
         output_file: Optional output file path
         include_diagrams: Whether to include Mermaid diagrams
         use_reflection: Whether to use reflection agent
-        model: OpenAI model to use
+        model: Model to use
         max_iterations: Maximum reflection iterations
+        provider: LLM provider ("openai" or "azure")
         
     Returns:
         GenerationResponse with documentation and metadata
@@ -168,31 +174,84 @@ def generate_docs(
         reflectdoc = ReflectDoc(
             use_reflection=use_reflection,
             model=model,
-            max_iterations=max_iterations
+            max_iterations=max_iterations,
+            provider=provider
         )
         
-        # Generate documentation
-        documentation, metadata = reflectdoc.generate_documentation(
-            repo_path=repo_path,
-            doc_type=doc_type,
-            include_diagrams=include_diagrams
-        )
+        # Determine the docs folder path
+        repo_path_obj = Path(repo_path).resolve()
+        docs_folder = repo_path_obj / "docs"
         
-        # Save to file if specified
-        if output_file:
-            output_path = Path(output_file)
-            output_path.write_text(documentation, encoding='utf-8')
+        # Create docs folder if it doesn't exist
+        docs_folder.mkdir(exist_ok=True)
+        console.print(f"[dim]→ Docs folder: {docs_folder}[/dim]")
+        
+        project_name = repo_path_obj.name
+        output_files = []
+        
+        # Handle "full" documentation type - generate separate files for each type
+        if doc_type == "full":
+            doc_types = ["architecture", "api", "troubleshooting"]
+            all_metadata = {}
+            
+            for dtype in doc_types:
+                console.print(f"\n[bold cyan]→ Generating {dtype} documentation...[/bold cyan]")
+                
+                # Generate documentation for this type
+                documentation, metadata = reflectdoc.generate_documentation(
+                    repo_path=repo_path,
+                    doc_type=dtype,
+                    include_diagrams=include_diagrams
+                )
+                
+                # Determine output file path
+                output_filename = f"{project_name}_{dtype}.md"
+                output_path = docs_folder / output_filename
+                
+                # Save to file
+                output_path.write_text(documentation, encoding='utf-8')
+                output_files.append(str(output_path))
+                
+                console.print(f"[green]✓ Saved {dtype} documentation to: {output_path}[/green]")
+                
+                # Collect metadata
+                all_metadata[dtype] = metadata
+            
+            return GenerationResponse(
+                success=True,
+                documentation=f"Full documentation generated in {len(doc_types)} files",
+                output_file=", ".join(output_files),
+                metadata=all_metadata
+            )
+        
         else:
-            # Default output file based on doc type
-            output_file = f"{doc_type.upper()}_DOCS.md"
-            Path(output_file).write_text(documentation, encoding='utf-8')
-        
-        return GenerationResponse(
-            success=True,
-            documentation=documentation,
-            output_file=output_file,
-            metadata=metadata
-        )
+            # Single documentation type
+            documentation, metadata = reflectdoc.generate_documentation(
+                repo_path=repo_path,
+                doc_type=doc_type,
+                include_diagrams=include_diagrams
+            )
+            
+            # Determine output file path
+            if output_file:
+                # If user provided output file, use it (can be absolute or relative to docs folder)
+                output_path = Path(output_file)
+                if not output_path.is_absolute():
+                    output_path = docs_folder / output_file
+            else:
+                # Auto-generate filename: projectname_doctype.md in docs folder
+                output_filename = f"{project_name}_{doc_type}.md"
+                output_path = docs_folder / output_filename
+            
+            # Save to file
+            output_path.write_text(documentation, encoding='utf-8')
+            
+            return GenerationResponse(
+                success=True,
+                documentation=documentation,
+                output_file=str(output_path),
+                metadata=metadata
+            )
         
     except Exception as e:
         return GenerationResponse(

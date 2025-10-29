@@ -26,6 +26,8 @@ This approach ensures high-quality, accurate, and comprehensive documentation th
 - ✅ **Accuracy Validation**: Validates documentation against actual code structure
 - 📝 **Live Content Display**: View generated documentation in terminal with rich formatting
 - 🎯 **IDE/CI Integration Ready**: Works in any environment
+- ☁️ **Multi-Provider Support**: Works with both OpenAI and Azure OpenAI services
+- 🔧 **Flexible Model Configuration**: Support for GPT-3.5, GPT-4, O1 series, and custom deployment names
 
 ## 🏗️ Architecture
 
@@ -34,18 +36,37 @@ This approach ensures high-quality, accurate, and comprehensive documentation th
 ```
 reflectdoc/
 ├── src/reflectdoc/
+│   ├── __init__.py          # Package initialization and exports
 │   ├── core.py              # Main orchestrator coordinating agents
 │   ├── cli.py               # Beautiful CLI interface with Rich
 │   ├── api.py               # FastAPI REST API with Swagger docs
+│   ├── llm_client.py        # LLM client factory (OpenAI/Azure)
+│   ├── py.typed             # PEP 561 type hints marker
 │   ├── agents/
+│   │   ├── __init__.py
 │   │   ├── generator_agent.py    # Creates documentation drafts
 │   │   └── reflection_agent.py   # Reviews and improves quality
 │   ├── models/
 │   │   └── __init__.py           # Pydantic models for type safety
 │   └── utils/
-│       └── __init__.py           # AST parsing, repo scanning
-└── examples/
-    └── demo.py              # Python API usage examples
+│       └── __init__.py           # AST parsing, repo scanning utilities
+├── examples/
+│   ├── __init__.py
+│   └── welcome_mailer/           # Sample project for testing
+│       ├── __init__.py
+│       ├── main.py
+│       ├── user.py
+│       ├── email_service.py
+│       ├── config.py
+│       └── docs/                 # Generated documentation samples
+├── pyproject.toml           # Project dependencies and metadata
+├── uv.lock                  # Locked dependency versions
+├── .env                     # Environment configuration (API keys)
+├── .python-version          # Python version specification
+├── README.md                # This file
+├── QUICKSTART.md            # Quick start guide
+├── NOTES.md                 # Development notes
+└── LESSONS_LEARNED.md       # Project insights and learnings
 ```
 
 ### Reflection Pattern Flow
@@ -272,14 +293,50 @@ fast_response = generate_docs(
 Create a `.env` file in the project root:
 
 ```bash
-# Required
+# Required - Choose one of the following:
+
+# Option 1: OpenAI (Standard)
 OPENAI_API_KEY=your-openai-api-key-here
 
+# Option 2: Azure OpenAI
+AZURE_OPENAI_API_KEY=your-azure-api-key-here
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+AZURE_OPENAI_DEPLOYMENT_NAME=your-deployment-name
+AZURE_OPENAI_API_VERSION=2024-02-15-preview
+
 # Optional
-DEFAULT_MODEL=gpt-4-turbo-preview
+DEFAULT_MODEL=gpt-4-turbo-preview  # or your Azure deployment name
 API_HOST=0.0.0.0
 API_PORT=8000
 ```
+
+### Azure OpenAI Setup
+
+ReflectDoc fully supports Azure OpenAI services. To use Azure OpenAI:
+
+1. **Create Azure OpenAI Resource** in the Azure Portal
+2. **Deploy a Model** (e.g., gpt-4, gpt-35-turbo)
+3. **Configure Environment Variables**:
+
+```bash
+# .env file
+AZURE_OPENAI_API_KEY=your-azure-api-key
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+AZURE_OPENAI_DEPLOYMENT_NAME=your-deployment-name
+AZURE_OPENAI_API_VERSION=2024-02-15-preview
+```
+
+4. **Use with CLI**:
+
+```bash
+# The system automatically detects Azure configuration
+uv run reflectdoc generate ./src --model your-deployment-name
+
+# Or use the deployment name directly
+uv run reflectdoc generate ./src --type architecture
+```
+
+**Note**: When using Azure OpenAI, the `--model` parameter should match your Azure deployment name, not the OpenAI model name.
 
 ### Supported OpenAI Models
 
@@ -373,6 +430,7 @@ Automatically handles different OpenAI model types:
 | Empty content generated | Wrong model or token limits | Try `gpt-4-turbo-preview` or `gpt-3.5-turbo` |
 | Analysis includes .venv | No filtering | Run from `src/` folder or add filters |
 | Port 8000 in use | Another service running | Use `--port 8001` |
+| Mermaid diagram parse errors | Node labels too long | **Fixed in latest version** - diagrams now use short labels |
 
 ### Debug Mode
 
@@ -385,6 +443,116 @@ uv run reflectdoc generate ./src --show-content
 # Check what will be analyzed
 uv run reflectdoc analyze ./src
 ```
+
+## 🎉 Recent Enhancements & Updates
+
+### Version 0.1.1 - Latest Improvements
+
+#### 🔧 Mermaid Diagram Fixes
+**Problem**: Mermaid diagrams were generating parse errors due to long node labels with function signatures being wrapped across multiple lines.
+
+**Solution**: 
+- ✅ **Enhanced Generator Agent**: Now creates concise Mermaid diagrams with SHORT node labels (max 20 characters)
+- ✅ **Updated Reflection Agent**: Validates diagram node lengths and suggests simpler alternatives
+- ✅ **Better Examples**: Clear guidelines for GOOD vs BAD diagram patterns
+
+**Before** (caused parse errors):
+```mermaid
+graph TD
+  A[get_user_input() -> User] --> B[display_user_info(user) -> None]
+```
+
+**After** (clean and working):
+```mermaid
+graph TD
+  A[User Input] --> B[Validation] 
+  B --> C[Display Info]
+```
+
+#### 🎯 Improved Prompt Engineering
+- **Generator Agent**: Enhanced prompts to create more accurate, grounded documentation
+- **Reflection Agent**: Better critique format with specific validation rules
+- **Accuracy Focus**: Explicit instructions to avoid hallucinations and verify against actual code
+
+#### ☁️ Multi-Provider Support
+- ✅ **OpenAI Support**: Standard OpenAI API with all GPT models
+- ✅ **Azure OpenAI Support**: Full Azure OpenAI integration with custom deployments
+- ✅ **Flexible Configuration**: Automatic provider detection from environment variables
+- ✅ **Model Compatibility**: Handles both `max_tokens` and `max_completion_tokens` parameters
+
+#### 🎨 Enhanced Code Analysis
+- **Deep AST Parsing**: Extracts exact method signatures with type annotations
+- **Attribute Detection**: Identifies class and instance attributes with types
+- **Import Analysis**: Tracks dependencies and module relationships
+- **Docstring Extraction**: Preserves existing documentation
+
+#### 📊 Better Validation
+- **Accuracy Checks**: Validates all mentioned APIs exist in actual code
+- **Signature Verification**: Ensures method signatures match reality
+- **Completeness Review**: Identifies missing important components
+- **Specificity Enforcement**: Prevents generic descriptions
+
+### Key Features Added in This Release
+
+1. **Mermaid Diagram Robustness**: Fixed all parsing issues with automatic label shortening
+2. **Azure OpenAI Integration**: Full support for Azure deployments and custom model names
+3. **LLM Client Factory**: Centralized client management with automatic provider selection
+4. **Enhanced Reflection**: More thorough critique with diagram validation
+5. **Token Usage Tracking**: Detailed metrics for prompt and completion tokens
+6. **Improved Error Handling**: Better error messages and validation feedback
+
+### Technical Improvements
+
+- **Modular Architecture**: Separated LLM client creation into factory pattern
+- **Type Safety**: Enhanced Pydantic models for better validation
+- **Code Quality**: Improved prompts to reduce hallucinations
+- **Performance**: Optimized token usage and API calls
+- **Maintainability**: Cleaner code structure with better separation of concerns
+
+### Configuration Enhancements
+
+**New LLM Client Factory** (`llm_client.py`):
+```python
+from reflectdoc.llm_client import LLMClientFactory, LLMProvider
+
+# Automatic provider detection
+client = LLMClientFactory.create_client(provider="auto", model="gpt-4")
+
+# Explicit OpenAI
+client = LLMClientFactory.create_client(provider="openai", model="gpt-4-turbo")
+
+# Explicit Azure OpenAI
+client = LLMClientFactory.create_client(provider="azure", model="my-deployment")
+```
+
+**Supported Environment Configurations**:
+```bash
+# OpenAI (Standard)
+OPENAI_API_KEY=sk-...
+
+# Azure OpenAI
+AZURE_OPENAI_API_KEY=...
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4-deployment
+AZURE_OPENAI_API_VERSION=2024-02-15-preview
+```
+
+### Breaking Changes
+
+None! All changes are backward compatible. Existing configurations and usage patterns continue to work.
+
+### Migration Guide
+
+If you're upgrading from an earlier version:
+
+1. **No changes required** - everything works as before
+2. **Optional**: Add Azure OpenAI configuration if you want to use Azure
+3. **Optional**: Update your `.env` file with new Azure variables
+4. **Benefit**: Mermaid diagrams now work reliably without parse errors
+
+### What's Next
+
+See the [Roadmap](#-roadmap) section for planned features in upcoming releases.
 
 ## 📚 Examples
 
@@ -505,7 +673,7 @@ MIT License - see LICENSE file for details
 
 ## 📞 Support
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/reflectdoc/issues)
+- **Issues**: [GitHub Issues](https://github.com/asishpattnaik1/reflectdoc/issues)
 - **Documentation**: This README and interactive API docs at `/docs`
 - **Examples**: See `examples/` directory
 
